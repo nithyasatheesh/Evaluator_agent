@@ -4,45 +4,54 @@ import zipfile
 import io
 import json
 import re
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+
 from openai import OpenAI
 from bs4 import BeautifulSoup
 from docx import Document
 from PyPDF2 import PdfReader
 import nbformat
-from pathlib import Path
+
+# ------------------------
+# CONFIG
+# ------------------------
 
 st.set_page_config(
-    page_title="Case Study Evaluator",
+    page_title="AI Case Study Evaluator",
     layout="wide"
 )
 
-st.title("AI Case Study Evaluator")
+st.title("📊 AI Case Study Evaluator")
 
 client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"]
 )
 
-####################################
-# FILE READERS
-####################################
+# ------------------------
+# READERS
+# ------------------------
 
 def read_pdf(file):
 
     try:
+
         reader = PdfReader(file)
 
-        text = []
+        pages = []
 
-        for page in reader.pages:
-            t = page.extract_text()
+        for p in reader.pages:
 
-            if t:
-                text.append(t)
+            txt = p.extract_text()
 
-        return "\n".join(text)
+            if txt:
+
+                pages.append(txt)
+
+        return "\n".join(pages)
 
     except:
+
         return ""
 
 def read_docx(file):
@@ -57,28 +66,32 @@ def read_docx(file):
         )
 
     except:
+
         return ""
 
-def read_html(raw):
+def read_html(text):
 
     soup = BeautifulSoup(
-        raw,
+        text,
         "html.parser"
     )
 
-    for tag in soup(
+    for t in soup(
         ["script","style"]
     ):
-        tag.decompose()
 
-    return soup.get_text()
+        t.decompose()
 
-def read_ipynb(raw):
+    return soup.get_text(
+        separator="\n"
+    )
+
+def read_notebook(text):
 
     try:
 
         nb = nbformat.reads(
-            raw,
+            text,
             as_version=4
         )
 
@@ -89,33 +102,44 @@ def read_ipynb(raw):
             if cell.cell_type=="markdown":
 
                 output.append(
-                    "".join(cell.source)
+                    "".join(
+                        cell.source
+                    )
                 )
 
             elif cell.cell_type=="code":
 
                 output.append(
+
                     "CODE:\n"+
-                    "".join(cell.source)
+                    "".join(
+                        cell.source
+                    )
+
                 )
 
         return "\n".join(output)
 
     except:
+
         return ""
 
-def summarize_csv(raw):
+def summarize_csv(text):
 
     try:
 
-        df=pd.read_csv(
-            io.StringIO(raw)
+        df = pd.read_csv(
+            io.StringIO(text)
         )
 
         return f"""
 Rows:{df.shape[0]}
-Columns:{list(df.columns)}
-Head:
+
+Columns:
+{list(df.columns)}
+
+Sample:
+
 {df.head(3)}
 """
 
@@ -123,15 +147,19 @@ Head:
 
         return ""
 
-####################################
+# ------------------------
 # RUBRIC
-####################################
+# ------------------------
 
-def rubric_text(df):
+def rubric_to_text(df):
 
-    return "\n".join(
+    txt=[]
 
-        f"""
+    for _,r in df.iterrows():
+
+        txt.append(
+
+f"""
 Criterion:
 {r['Criterion']}
 
@@ -141,20 +169,19 @@ Max Score:
 Description:
 {r['Description']}
 """
+        )
 
-        for _,r
-        in df.iterrows()
-    )
+    return "\n".join(txt)
 
-####################################
+# ------------------------
 # ZIP PARSER
-####################################
+# ------------------------
 
 def parse_submission(
     zip_bytes
 ):
 
-    submission={
+    data={
 
         "docs":[],
 
@@ -164,11 +191,7 @@ def parse_submission(
 
         "datasets":[],
 
-        "sql":[],
-
-        "frontend":[],
-
-        "backend":[],
+        "database":[],
 
         "images":[]
 
@@ -178,175 +201,156 @@ def parse_submission(
         io.BytesIO(zip_bytes)
     )
 
-    for path in z.namelist():
+    for file in z.namelist():
 
         try:
 
-            raw=z.read(path)
+            raw=z.read(file)
 
-            decoded=raw.decode(
+            suffix=Path(
+                file
+            ).suffix.lower()
+
+            text=raw.decode(
                 errors="ignore"
             )
 
-            suffix=Path(
-                path
-            ).suffix.lower()
-
             if suffix==".pdf":
 
-                submission["docs"].append(
+                data["docs"].append(
+
                     read_pdf(
                         io.BytesIO(raw)
                     )
+
                 )
 
             elif suffix==".docx":
 
-                submission["docs"].append(
+                data["docs"].append(
+
                     read_docx(
                         io.BytesIO(raw)
                     )
+
                 )
 
             elif suffix in [
+
                 ".html",
                 ".htm"
+
             ]:
 
-                submission["docs"].append(
-                    read_html(decoded)
+                data["docs"].append(
+
+                    read_html(text)
+
                 )
 
             elif suffix==".py":
 
-                if "frontend" in path:
+                data["code"].append(
 
-                    submission[
-                        "frontend"
-                    ].append(
-                        decoded
-                    )
+                    text
 
-                elif "backend" in path:
-
-                    submission[
-                        "backend"
-                    ].append(
-                        decoded
-                    )
-
-                else:
-
-                    submission[
-                        "code"
-                    ].append(
-                        decoded
-                    )
+                )
 
             elif suffix==".ipynb":
 
-                submission[
-                    "notebooks"
-                ].append(
-                    read_ipynb(
-                        decoded
+                data["notebooks"].append(
+
+                    read_notebook(
+                        text
                     )
+
                 )
 
             elif suffix==".csv":
 
-                submission[
-                    "datasets"
-                ].append(
+                data["datasets"].append(
+
                     summarize_csv(
-                        decoded
+                        text
                     )
+
                 )
 
             elif suffix==".sql":
 
-                submission[
-                    "sql"
-                ].append(
-                    decoded
+                data["database"].append(
+
+                    text
+
                 )
 
             elif suffix==".md":
 
-                submission[
-                    "docs"
-                ].append(
-                    decoded
+                data["docs"].append(
+
+                    text
+
                 )
 
             elif suffix in [
+
                 ".png",
                 ".jpg",
                 ".jpeg"
+
             ]:
 
-                submission[
-                    "images"
-                ].append(path)
+                data["images"].append(
+                    file
+                )
 
         except:
+
             pass
 
-    return submission
+    return data
 
-####################################
+# ------------------------
 # CONTEXT
-####################################
+# ------------------------
 
-def build_context(
-    submission
-):
+def build_context(data):
 
     return f"""
 
 DOCUMENTATION
 
-{' '.join(submission['docs'])[:12000]}
+{' '.join(data['docs'])[:12000]}
 
 NOTEBOOKS
 
-{' '.join(submission['notebooks'])[:10000]}
-
-BACKEND
-
-{' '.join(submission['backend'])[:10000]}
-
-FRONTEND
-
-{' '.join(submission['frontend'])[:7000]}
+{' '.join(data['notebooks'])[:10000]}
 
 CODE
 
-{' '.join(submission['code'])[:7000]}
+{' '.join(data['code'])[:12000]}
 
 DATABASE
 
-{' '.join(submission['sql'])[:5000]}
+{' '.join(data['database'])[:5000]}
 
 DATASETS
 
-{submission['datasets']}
+{data['datasets']}
 
 IMAGES
 
-{submission['images']}
+{data['images']}
 
 """
 
-####################################
+# ------------------------
 # OPENAI
-####################################
+# ------------------------
 
-def evaluate(
-    prompt
-):
+def evaluate(prompt):
 
-    response=client.chat.completions.create(
+    response = client.chat.completions.create(
 
         model="gpt-4.1",
 
@@ -359,13 +363,15 @@ def evaluate(
                 "role":"system",
 
                 "content":"""
+
 You are a strict evaluator.
 
-Evaluate complete submission.
+Evaluate ENTIRE submission.
 
-Never score files separately.
+Do not score files separately.
 
-Return JSON only.
+Return ONLY JSON.
+
 """
             },
 
@@ -385,23 +391,75 @@ Return JSON only.
         0
     ].message.content
 
-####################################
+# ------------------------
+# PARSE JSON
+# ------------------------
+
+def safe_json(raw):
+
+    try:
+
+        return json.loads(raw)
+
+    except:
+
+        match = re.search(
+
+            r"\{.*\}",
+
+            raw,
+
+            re.DOTALL
+
+        )
+
+        if match:
+
+            try:
+
+                return json.loads(
+
+                    match.group()
+
+                )
+
+            except:
+
+                pass
+
+    return {
+
+        "scores":{},
+
+        "strengths":[],
+
+        "improvements":[]
+
+    }
+
+# ------------------------
 # UI
-####################################
+# ------------------------
 
 problem=st.file_uploader(
-"Problem",
+
+"Upload Problem",
+
 ["pdf","docx"]
+
 )
 
 rubric=st.file_uploader(
-"Rubric",
+
+"Upload Rubric",
+
 ["xlsx"]
+
 )
 
-zip_files=st.file_uploader(
+submissions=st.file_uploader(
 
-"Participant ZIP",
+"Upload Participant ZIP Files",
 
 type=["zip"],
 
@@ -409,19 +467,47 @@ accept_multiple_files=True
 
 )
 
-custom=st.text_area(
-"Extra Prompt"
+extra_prompt=st.text_area(
+
+"Additional Instructions"
+
 )
 
-if st.button(
-"Evaluate"
-):
+# ------------------------
+# MAIN
+# ------------------------
 
-    rubric_df=pd.read_excel(
+if st.button("Evaluate"):
+
+    if not problem:
+
+        st.error(
+            "Upload problem"
+        )
+
+        st.stop()
+
+    if not rubric:
+
+        st.error(
+            "Upload rubric"
+        )
+
+        st.stop()
+
+    if not submissions:
+
+        st.error(
+            "Upload submissions"
+        )
+
+        st.stop()
+
+    rubric_df = pd.read_excel(
         rubric
     )
 
-    rubric_str=rubric_text(
+    rubric_text = rubric_to_text(
         rubric_df
     )
 
@@ -439,16 +525,16 @@ if st.button(
             problem
         )
 
-    results=[]
+    def process(zipfile_obj):
 
-    def process(z):
+        parsed=parse_submission(
 
-        submission=parse_submission(
-            z.read()
+            zipfile_obj.read()
+
         )
 
         context=build_context(
-            submission
+            parsed
         )
 
         prompt=f"""
@@ -459,11 +545,11 @@ PROBLEM
 
 RUBRIC
 
-{rubric_str}
+{rubric_text}
 
-CUSTOM
+EXTRA INSTRUCTIONS
 
-{custom}
+{extra_prompt}
 
 SUBMISSION
 
@@ -472,9 +558,15 @@ SUBMISSION
 Return:
 
 {{
-"scores":{{}},
-"strengths":[],
-"improvements":[]
+"scores":{{
+"criterion":score
+}},
+"strengths":[
+""
+],
+"improvements":[
+""
+]
 }}
 
 """
@@ -483,46 +575,142 @@ Return:
             prompt
         )
 
-        return {
-
-            "participant":
-            z.name,
-
-            "evaluation":
+        result=safe_json(
             raw
+        )
+
+        row={
+
+            "Participant":
+            zipfile_obj.name
 
         }
 
-    with ThreadPoolExecutor(
-        max_workers=4
-    ) as ex:
+        total=0
 
-        results=list(
-            ex.map(
-                process,
-                zip_files
-            )
+        scores=result.get(
+            "scores",
+            {}
         )
 
-    out=pd.DataFrame(
+        for _,r in rubric_df.iterrows():
+
+            criterion=r[
+                "Criterion"
+            ]
+
+            val=float(
+
+                scores.get(
+
+                    criterion,
+
+                    0
+
+                )
+
+            )
+
+            row[
+                criterion
+
+            ]=val
+
+            total+=val
+
+        row[
+            "Total"
+        ]=round(
+            total,
+            2
+        )
+
+        row[
+            "Strengths"
+        ]="; ".join(
+
+            result.get(
+                "strengths",
+                []
+            )
+
+        )
+
+        row[
+            "Improvements"
+        ]="; ".join(
+
+            result.get(
+                "improvements",
+                []
+            )
+
+        )
+
+        return row
+
+    with st.spinner(
+        "Evaluating..."
+    ):
+
+        with ThreadPoolExecutor(
+            max_workers=4
+        ) as executor:
+
+            results=list(
+
+                executor.map(
+
+                    process,
+
+                    submissions
+
+                )
+
+            )
+
+    output=pd.DataFrame(
         results
     )
 
-    st.dataframe(out)
+    st.success(
+        "Done"
+    )
+
+    st.dataframe(
+        output,
+        use_container_width=True
+    )
 
     excel=io.BytesIO()
 
-    out.to_excel(
+    with pd.ExcelWriter(
+
         excel,
-        index=False
-    )
+
+        engine="xlsxwriter"
+
+    ) as writer:
+
+        output.to_excel(
+
+            writer,
+
+            index=False,
+
+            sheet_name="Scores"
+
+        )
 
     st.download_button(
 
-        "Download",
+        "📥 Download Excel",
 
-        excel,
+        excel.getvalue(),
 
-        "results.xlsx"
+        file_name=
+        "evaluation_report.xlsx",
+
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     )
