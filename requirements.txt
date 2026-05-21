@@ -1,0 +1,9 @@
+streamlit
+openai>=1.30.0
+pandas
+openpyxl
+python-docx
+PyPDF2
+beautifulsoup4
+nbformat
+xlsxwriter
