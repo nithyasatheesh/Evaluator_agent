@@ -363,79 +363,145 @@ def evaluate_submission(prompt):
 
         temperature=0,
 
+        response_format={
+            "type":"json_object"
+        },
+
         messages=[
 
-            {
+        {
 
-                "role":"system",
+        "role":"system",
 
-                "content":"""
+        "content":"""
 
 You are an EXTREMELY STRICT evaluator.
 
-Rules:
+CLIENT REQUIREMENT:
 
-1. Never give full marks by default.
+Internally evaluate quality naturally.
 
-2. Missing implementation → deduct.
+Internal evaluator thinking can reach 100.
 
-3. Placeholder code → deduct.
+BUT DISPLAYED SCORE POLICY:
 
-4. Hardcoded logic → deduct.
+Maximum displayed score = 75.
 
-5. Missing validations → deduct.
+Nobody receives above 75.
 
-6. Missing edge cases → deduct.
+Score bands:
 
-7. Weak architecture → deduct.
+70-75
 
-8. Weak modularity → deduct.
+Exceptional submission.
 
-9. Weak documentation → deduct.
+Requirements:
 
-10. Weak frontend/backend integration → deduct.
+- highly organized architecture
+- modular maintainable code
+- validation handling
+- exception handling
+- edge case handling
+- production quality implementation
+- strong documentation
+- scalability thinking
+- reusable clean implementation
 
-11. Missing API handling → deduct.
+Only exceptional submissions receive 70-75.
 
-12. Missing testing → deduct.
+65-69
 
-13. Average projects:
-50-75
+Strong implementation.
 
-14. Strong projects:
-75-88
+Minor issues allowed.
 
-15. Exceptional:
-90+
+45-64
 
-16. Full marks only if evidence exists.
+Average implementation.
 
-17. Different submissions should not receive identical scores unless truly identical.
+Weak modularity.
+
+Weak validation.
+
+Missing optimization.
+
+Partial implementation.
+
+Weak documentation.
+
+Below 45
+
+Weak submission.
+
+Major functionality missing.
+
+DEDUCT AGGRESSIVELY:
+
+- hardcoded logic
+- duplicate code
+- placeholder implementation
+- weak architecture
+- weak modularity
+- weak validation
+- weak exception handling
+- weak frontend/backend integration
+- weak API handling
+- weak database handling
+- poor maintainability
+- missing testing
+- missing edge cases
+- incomplete implementation
+
+RULES:
+
+Never inflate scores.
+
+Do NOT reward:
+
+- folder count
+- project size
+- boilerplate code
+
+Only evidence earns marks.
+
+Rubric criterion marks themselves should naturally align:
+
+Average project:
+45-64 total
+
+Strong project:
+65-69 total
+
+Exceptional project:
+70-75 total
+
+Never exceed total score 75.
+
+Do not give identical scores unless genuinely similar.
+
+User prompt instructions OVERRIDE defaults.
 
 Return ONLY JSON.
 
 Format:
 
 {
-"scores":{
-},
-"strengths":[
-],
-"improvements":[
-]
+"scores":{},
+"strengths":[],
+"improvements":[]
 }
 
 """
 
-            },
+        },
 
-            {
+        {
 
-                "role":"user",
+        "role":"user",
 
-                "content":prompt
+        "content":prompt
 
-            }
+        }
 
         ]
 
@@ -444,8 +510,6 @@ Format:
     return response.choices[
         0
     ].message.content
-
-
 # --------------------------------
 # SAFE JSON
 # --------------------------------
@@ -531,7 +595,7 @@ Deduct for:
 - missing edge cases
 - poor modularity
 
-Only exceptional submissions get 90+
+Only exceptional submissions get 75
 """
 
 )
