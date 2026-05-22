@@ -15,9 +15,9 @@ from PyPDF2 import PdfReader
 import nbformat
 
 
-# ==================================
+# ===========================
 # CONFIG
-# ==================================
+# ===========================
 
 st.set_page_config(
     page_title="AI Case Study Evaluator",
@@ -31,9 +31,9 @@ client = OpenAI(
 )
 
 
-# ==================================
-# READERS
-# ==================================
+# ===========================
+# FILE READERS
+# ===========================
 
 def read_pdf(file):
 
@@ -41,17 +41,17 @@ def read_pdf(file):
 
         reader = PdfReader(file)
 
-        text=[]
+        pages = []
 
         for page in reader.pages:
 
-            t=page.extract_text()
+            txt = page.extract_text()
 
-            if t:
+            if txt:
 
-                text.append(t)
+                pages.append(txt)
 
-        return "\n".join(text)
+        return "\n".join(pages)
 
     except:
 
@@ -62,7 +62,7 @@ def read_docx(file):
 
     try:
 
-        doc=Document(file)
+        doc = Document(file)
 
         return "\n".join(
 
@@ -79,7 +79,7 @@ def read_docx(file):
 
 def read_html(text):
 
-    soup=BeautifulSoup(
+    soup = BeautifulSoup(
 
         text,
 
@@ -89,7 +89,7 @@ def read_html(text):
 
     for tag in soup(
 
-        ["script","style"]
+        ["script", "style"]
 
     ):
 
@@ -104,12 +104,9 @@ def read_notebook(text):
 
     try:
 
-        nb=nbformat.reads(
-
+        nb = nbformat.reads(
             text,
-
             as_version=4
-
         )
 
         output=[]
@@ -149,7 +146,7 @@ def summarize_csv(text):
 
     try:
 
-        df=pd.read_csv(
+        df = pd.read_csv(
             io.StringIO(text)
         )
 
@@ -162,6 +159,7 @@ Columns:
 {list(df.columns)}
 
 Sample:
+
 {df.head(3).to_string()}
 
 """
@@ -171,28 +169,28 @@ Sample:
         return ""
 
 
-# ==================================
+# ===========================
 # RUBRIC
-# ==================================
+# ===========================
 
 def rubric_to_text(df):
 
     output=[]
 
-    for _,row in df.iterrows():
+    for _, row in df.iterrows():
 
         output.append(
 
 f"""
 
 Criterion:
-{row["Criterion"]}
+{row['Criterion']}
 
-Max Score:
-{row["Max Score"]}
+Maximum Score:
+{row['Max Score']}
 
 Description:
-{row["Description"]}
+{row['Description']}
 
 """
 
@@ -201,9 +199,9 @@ Description:
     return "\n".join(output)
 
 
-# ==================================
+# ===========================
 # ZIP PARSER
-# ==================================
+# ===========================
 
 def parse_submission(zip_bytes):
 
@@ -223,7 +221,7 @@ def parse_submission(zip_bytes):
 
     }
 
-    z=zipfile.ZipFile(
+    z = zipfile.ZipFile(
         io.BytesIO(zip_bytes)
     )
 
@@ -231,13 +229,13 @@ def parse_submission(zip_bytes):
 
         try:
 
-            raw=z.read(file)
+            raw = z.read(file)
 
-            suffix=Path(
+            suffix = Path(
                 file
             ).suffix.lower()
 
-            text=raw.decode(
+            text = raw.decode(
                 errors="ignore"
             )
 
@@ -284,7 +282,9 @@ def parse_submission(zip_bytes):
 
                 parsed["notebooks"].append(
 
-                    read_notebook(text)
+                    read_notebook(
+                        text
+                    )
 
                 )
 
@@ -292,7 +292,9 @@ def parse_submission(zip_bytes):
 
                 parsed["datasets"].append(
 
-                    summarize_csv(text)
+                    summarize_csv(
+                        text
+                    )
 
                 )
 
@@ -308,18 +310,6 @@ def parse_submission(zip_bytes):
                     text
                 )
 
-            elif suffix in [
-
-                ".png",
-                ".jpg",
-                ".jpeg"
-
-            ]:
-
-                parsed["images"].append(
-                    file
-                )
-
         except:
 
             pass
@@ -327,9 +317,9 @@ def parse_submission(zip_bytes):
     return parsed
 
 
-# ==================================
-# BUILD CONTEXT
-# ==================================
+# ===========================
+# CONTEXT
+# ===========================
 
 def build_context(parsed):
 
@@ -355,23 +345,19 @@ DATASETS
 
 {parsed['datasets']}
 
-IMAGES
-
-{parsed['images']}
-
 """
 
 
-# ==================================
+# ===========================
 # FINAL SCORE
-# ==================================
+# ===========================
 
 def calculate_final_score(
     total,
     penalties
 ):
 
-    deduction=sum(
+    penalty_total = sum(
 
         p.get(
             "deduction",
@@ -382,32 +368,33 @@ def calculate_final_score(
 
     )
 
-    adjusted=max(
+    adjusted = max(
 
-        total-deduction,
+        total - penalty_total,
 
         0
 
     )
 
-    final=adjusted*0.75
+    final = adjusted * 0.75
 
-    return round(
+    final = min(
+        final,
+        75
+    )
 
-        min(final,75),
-
-        2
-
+    return int(
+        round(final)
     )
 
 
-# ==================================
+# ===========================
 # OPENAI
-# ==================================
+# ===========================
 
 def evaluate(prompt):
 
-    response=client.chat.completions.create(
+    response = client.chat.completions.create(
 
         model="gpt-4.1",
 
@@ -421,32 +408,21 @@ def evaluate(prompt):
 
         "content":"""
 
-You are STRICT.
+Evaluate STRICTLY.
 
-Evaluate ONLY evidence.
+Maximum excellent score=75.
 
-Maximum excellent score:
-75
+Average submissions:
 
-Penalty system:
+45-60
 
-Weak validation=-2
+Good:
 
-Weak architecture=-2
+60-69
 
-Weak modularity=-1
+Exceptional:
 
-Duplicate code=-1
-
-Hardcoded values=-2
-
-Weak documentation=-1
-
-Weak exception handling=-1
-
-Missing edge cases=-2
-
-Incomplete implementation=-2
+70-75
 
 Return JSON ONLY.
 
@@ -471,9 +447,9 @@ Return JSON ONLY.
     ].message.content
 
 
-# ==================================
-# JSON
-# ==================================
+# ===========================
+# SAFE JSON
+# ===========================
 
 def safe_json(raw):
 
@@ -483,7 +459,7 @@ def safe_json(raw):
 
     except:
 
-        match=re.search(
+        match = re.search(
 
             r"\{.*\}",
 
@@ -495,17 +471,9 @@ def safe_json(raw):
 
         if match:
 
-            try:
-
-                return json.loads(
-
-                    match.group()
-
-                )
-
-            except:
-
-                pass
+            return json.loads(
+                match.group()
+            )
 
     return {
 
@@ -518,29 +486,23 @@ def safe_json(raw):
     }
 
 
-# ==================================
+# ===========================
 # UI
-# ==================================
+# ===========================
 
 problem=st.file_uploader(
-
 "Problem",
-
 ["pdf","docx"]
-
 )
 
 rubric=st.file_uploader(
-
 "Rubric",
-
 ["xlsx"]
-
 )
 
 submissions=st.file_uploader(
 
-"Participant ZIP",
+"ZIP Files",
 
 type=["zip"],
 
@@ -549,23 +511,21 @@ accept_multiple_files=True
 )
 
 policy=st.text_area(
-
 "Evaluation Policy"
-
 )
 
 
-# ==================================
+# ===========================
 # RUN
-# ==================================
+# ===========================
 
 if st.button("Evaluate"):
 
-    rubric_df=pd.read_excel(
+    rubric_df = pd.read_excel(
         rubric
     )
 
-    rubric_text=rubric_to_text(
+    rubric_text = rubric_to_text(
         rubric_df
     )
 
@@ -573,25 +533,23 @@ if st.button("Evaluate"):
         ".pdf"
     ):
 
-        problem_text=read_pdf(
+        problem_text = read_pdf(
             problem
         )
 
     else:
 
-        problem_text=read_docx(
+        problem_text = read_docx(
             problem
         )
 
     def process(file):
 
-        parsed=parse_submission(
-
+        parsed = parse_submission(
             file.read()
-
         )
 
-        context=build_context(
+        context = build_context(
             parsed
         )
 
@@ -600,16 +558,6 @@ if st.button("Evaluate"):
 POLICY
 
 {policy}
-
-Maximum excellent score=75
-
-Prefer:
-
-45-60 average
-
-60-69 good
-
-70-75 exceptional
 
 PROBLEM
 
@@ -623,26 +571,15 @@ SUBMISSION
 
 {context}
 
-Return:
-
-{{
-"scores":{{}},
-"strengths":[],
-"improvements":[],
-"penalties":[
-{{
-"reason":"",
-"deduction":0
-}}
-],
-"overall_feedback":""
-}}
+Return JSON.
 
 """
 
-        raw=evaluate(prompt)
+        result = safe_json(
 
-        result=safe_json(raw)
+            evaluate(prompt)
+
+        )
 
         row={
 
@@ -655,27 +592,47 @@ Return:
 
         for _,r in rubric_df.iterrows():
 
-            criterion=r[
+            criterion = r[
                 "Criterion"
             ]
 
-            val=float(
+            max_score = int(
+                r["Max Score"]
+            )
 
-                result.get(
-                    "scores",
-                    {}
-                ).get(
-                    criterion,
-                    0
+            display = (
+
+                f"{criterion}"
+
+                f" ({max_score})"
+
+            )
+
+            score = int(
+
+                round(
+
+                    float(
+
+                        result.get(
+                            "scores",
+                            {}
+                        ).get(
+                            criterion,
+                            0
+                        )
+
+                    )
+
                 )
 
             )
 
             row[
-                criterion
-            ]=val
+                display
+            ] = score
 
-            total+=val
+            total += score
 
         final=calculate_final_score(
 
@@ -690,11 +647,11 @@ Return:
 
         row[
             "Final Score"
-        ]=final
+        ] = final
 
         row[
             "Strengths"
-        ]="; ".join(
+        ] = "; ".join(
 
             result.get(
                 "strengths",
@@ -706,7 +663,7 @@ Return:
 
         row[
             "Areas Of Improvement"
-        ]="; ".join(
+        ] = "; ".join(
 
             result.get(
                 "improvements",
@@ -717,25 +674,8 @@ Return:
         )
 
         row[
-            "Penalty Summary"
-        ]="; ".join(
-
-            [
-
-            f"{p['reason']}(-{p['deduction']})"
-
-            for p in result.get(
-                "penalties",
-                []
-            )
-
-            ]
-
-        )
-
-        row[
             "Overall Feedback"
-        ]=result.get(
+        ] = result.get(
 
             "overall_feedback",
 
@@ -752,11 +692,8 @@ Return:
         results=list(
 
             ex.map(
-
                 process,
-
                 submissions
-
             )
 
         )
