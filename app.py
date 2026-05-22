@@ -3,8 +3,6 @@ import pandas as pd
 import zipfile
 import io
 import json
-import re
-
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -14,13 +12,12 @@ from docx import Document
 from PyPDF2 import PdfReader
 import nbformat
 
-
 # =====================
 # CONFIG
 # =====================
 
 st.set_page_config(
-    page_title="AI Case Study Evaluator",
+    page_title="AI Evaluator",
     layout="wide"
 )
 
@@ -30,9 +27,8 @@ client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"]
 )
 
-
 # =====================
-# READERS
+# FILE READERS
 # =====================
 
 def read_pdf(file):
@@ -45,11 +41,11 @@ def read_pdf(file):
 
         for p in reader.pages:
 
-            txt=p.extract_text()
+            text=p.extract_text()
 
-            if txt:
+            if text:
 
-                pages.append(txt)
+                pages.append(text)
 
         return "\n".join(pages)
 
@@ -79,25 +75,29 @@ def read_docx(file):
 
 def read_html(text):
 
-    soup=BeautifulSoup(
+    try:
 
-        text,
+        soup=BeautifulSoup(
 
-        "html.parser"
+            text,
 
-    )
+            "html.parser"
 
-    for t in soup(
+        )
 
-        ["script","style"]
+        for t in soup(
 
-    ):
+            ["script","style"]
 
-        t.decompose()
+        ):
 
-    return soup.get_text(
-        separator="\n"
-    )
+            t.decompose()
+
+        return soup.get_text()
+
+    except:
+
+        return ""
 
 
 def read_notebook(text):
@@ -151,16 +151,10 @@ def summarize_csv(text):
         )
 
         return f"""
+Rows:{df.shape[0]}
+Columns:{list(df.columns)}
 
-Rows:
-{df.shape[0]}
-
-Columns:
-{list(df.columns)}
-
-Sample:
-{df.head(3).to_string()}
-
+{df.head(3)}
 """
 
     except:
@@ -174,30 +168,30 @@ Sample:
 
 def rubric_to_text(df):
 
-    text=[]
+    output=[]
 
-    for _,row in df.iterrows():
+    for _,r in df.iterrows():
 
-        text.append(
+        output.append(
 
 f"""
 Criterion:
-{row['Criterion']}
+{r["Criterion"]}
 
 Max Score:
-{row['Max Score']}
+{r["Max Score"]}
 
 Description:
-{row['Description']}
+{r["Description"]}
 """
 
         )
 
-    return "\n".join(text)
+    return "\n".join(output)
 
 
 # =====================
-# ZIP PARSER
+# ZIP
 # =====================
 
 def parse_submission(zip_bytes):
@@ -230,7 +224,7 @@ def parse_submission(zip_bytes):
                 file
             ).suffix.lower()
 
-            decoded=raw.decode(
+            text=raw.decode(
                 errors="ignore"
             )
 
@@ -263,46 +257,42 @@ def parse_submission(zip_bytes):
 
                 parsed["docs"].append(
 
-                    read_html(decoded)
+                    read_html(text)
 
                 )
 
             elif suffix==".py":
 
                 parsed["code"].append(
-                    decoded
+                    text
                 )
 
             elif suffix==".ipynb":
 
                 parsed["notebooks"].append(
 
-                    read_notebook(
-                        decoded
-                    )
-
-                )
-
-            elif suffix==".csv":
-
-                parsed["datasets"].append(
-
-                    summarize_csv(
-                        decoded
-                    )
+                    read_notebook(text)
 
                 )
 
             elif suffix==".sql":
 
                 parsed["database"].append(
-                    decoded
+                    text
+                )
+
+            elif suffix==".csv":
+
+                parsed["datasets"].append(
+
+                    summarize_csv(text)
+
                 )
 
             elif suffix==".md":
 
                 parsed["docs"].append(
-                    decoded
+                    text
                 )
 
         except:
@@ -344,37 +334,144 @@ DATASETS
 
 
 # =====================
-# FINAL SCORE
+# SCORE
 # =====================
+
+def strict_rubric_score(
+    raw,
+    max_marks
+):
+
+    ratio=0
+
+    if max_marks:
+
+        ratio=raw/max_marks
+
+    if ratio>=0.95:
+
+        reduction=max(
+
+            1,
+
+            round(
+                max_marks*.10
+            )
+
+        )
+
+    elif ratio>=0.90:
+
+        reduction=max(
+
+            1,
+
+            round(
+                max_marks*.15
+            )
+
+        )
+
+    elif ratio>=0.80:
+
+        reduction=max(
+
+            1,
+
+            round(
+                max_marks*.20
+            )
+
+        )
+
+    elif ratio>=0.70:
+
+        reduction=max(
+
+            1,
+
+            round(
+                max_marks*.25
+            )
+
+        )
+
+    else:
+
+        reduction=0
+
+    score=int(
+
+        round(
+
+            raw-reduction
+
+        )
+
+    )
+
+    return max(
+
+        0,
+
+        min(
+
+            score,
+
+            max_marks
+
+        )
+
+    )
+
 
 def calculate_final_score(
     total,
     penalties
 ):
 
-    deduction=sum(
+    deduction=0
 
-        int(
+    penalties=penalties or []
 
-            p.get(
-                "deduction",
-                0
+    for p in penalties:
+
+        try:
+
+            if isinstance(
+                p,
+                dict
+            ):
+
+                deduction+=int(
+
+                    p.get(
+                        "deduction",
+                        0
+                    )
+
+                )
+
+        except:
+
+            pass
+
+    return int(
+
+        round(
+
+            min(
+
+                max(
+                    total-deduction,
+                    0
+                ),
+
+                75
+
             )
 
         )
-
-        for p in penalties
-
-    )
-
-    return min(
-
-        max(
-            total-deduction,
-            0
-        ),
-
-        75
 
     )
 
@@ -409,20 +506,18 @@ STRICT evaluator.
 
 Maximum excellent score=75.
 
-Strong project:
-70-75
+Average:
+45-60
 
 Good:
 60-69
 
-Average:
-45-60
+Exceptional:
+70-75
 
-Reduce score aggressively.
+Reduce scores aggressively.
 
-Never award full marks easily.
-
-Return JSON ONLY.
+Return VALID JSON.
 
 """
 
@@ -473,19 +568,13 @@ def safe_json(raw):
 # =====================
 
 problem=st.file_uploader(
-
 "Problem",
-
 ["pdf","docx"]
-
 )
 
 rubric=st.file_uploader(
-
 "Rubric",
-
 ["xlsx"]
-
 )
 
 submissions=st.file_uploader(
@@ -503,7 +592,6 @@ policy=st.text_area(
 "Evaluation Policy"
 
 )
-
 
 # =====================
 # RUN
@@ -536,9 +624,7 @@ if st.button("Evaluate"):
     def process(file):
 
         parsed=parse_submission(
-
             file.read()
-
         )
 
         context=build_context(
@@ -563,19 +649,9 @@ SUBMISSION
 
 {context}
 
-IMPORTANT:
+Return EXACT rubric names.
 
-Return rubric criterion names EXACTLY.
-
-Return:
-
-{{
-"scores":{{}},
-"strengths":[],
-"improvements":[],
-"penalties":[],
-"overall_feedback":""
-}}
+JSON ONLY.
 
 """
 
@@ -616,46 +692,11 @@ Return:
 
             )
 
-            ratio=0
+            score=strict_rubric_score(
 
-            if max_marks:
+                raw,
 
-                ratio=raw/max_marks
-
-            if ratio>=0.95:
-
-                score=max_marks-2
-
-            elif ratio>=0.90:
-
-                score=max_marks-3
-
-            elif ratio>=0.80:
-
-                score=max_marks-4
-
-            elif ratio>=0.70:
-
-                score=max_marks-5
-
-            elif ratio>=0.60:
-
-                score=max_marks-6
-
-            else:
-
-                score=int(
-                    round(raw)
-                )
-
-            score=max(
-
-                0,
-
-                min(
-                    score,
-                    max_marks
-                )
+                max_marks
 
             )
 
@@ -665,15 +706,14 @@ Return:
 
             total+=score
 
+        penalties=result.get(
+            "penalties",
+            []
+        )
+
         final=calculate_final_score(
-
             total,
-
-            result.get(
-                "penalties",
-                []
-            )
-
+            penalties
         )
 
         row[
@@ -687,7 +727,6 @@ Return:
             result.get(
                 "strengths",
                 []
-
             )
 
         )
@@ -699,25 +738,7 @@ Return:
             result.get(
                 "improvements",
                 []
-
             )
-
-        )
-
-        row[
-            "Penalty Summary"
-        ]="; ".join(
-
-            [
-
-            f"{x['reason']}(-{x['deduction']})"
-
-            for x in result.get(
-                "penalties",
-                []
-            )
-
-            ]
 
         )
 
@@ -769,9 +790,7 @@ Return:
 
             writer,
 
-            index=False,
-
-            sheet_name="Evaluation"
+            index=False
 
         )
 
