@@ -3,6 +3,7 @@ import pandas as pd
 import zipfile
 import io
 import json
+import re
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -12,12 +13,12 @@ from docx import Document
 from PyPDF2 import PdfReader
 import nbformat
 
-# =====================
+# --------------------------------
 # CONFIG
-# =====================
+# --------------------------------
 
 st.set_page_config(
-    page_title="AI Evaluator",
+    page_title="AI Case Study Evaluator",
     layout="wide"
 )
 
@@ -27,9 +28,9 @@ client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"]
 )
 
-# =====================
+# --------------------------------
 # FILE READERS
-# =====================
+# --------------------------------
 
 def read_pdf(file):
 
@@ -37,20 +38,18 @@ def read_pdf(file):
 
         reader = PdfReader(file)
 
-        pages=[]
+        text = []
 
-        for p in reader.pages:
+        for page in reader.pages:
 
-            text=p.extract_text()
+            t = page.extract_text()
 
-            if text:
+            if t:
+                text.append(t)
 
-                pages.append(text)
-
-        return "\n".join(pages)
+        return "\n".join(text)
 
     except:
-
         return ""
 
 
@@ -58,81 +57,58 @@ def read_docx(file):
 
     try:
 
-        doc=Document(file)
+        doc = Document(file)
 
         return "\n".join(
-
             p.text
-
             for p in doc.paragraphs
-
         )
 
     except:
-
         return ""
 
 
 def read_html(text):
 
-    try:
+    soup = BeautifulSoup(
+        text,
+        "html.parser"
+    )
 
-        soup=BeautifulSoup(
+    for tag in soup(
+        ["script", "style"]
+    ):
+        tag.decompose()
 
-            text,
-
-            "html.parser"
-
-        )
-
-        for t in soup(
-
-            ["script","style"]
-
-        ):
-
-            t.decompose()
-
-        return soup.get_text()
-
-    except:
-
-        return ""
+    return soup.get_text(
+        separator="\n"
+    )
 
 
 def read_notebook(text):
 
     try:
 
-        nb=nbformat.reads(
+        nb = nbformat.reads(
             text,
             as_version=4
         )
 
-        output=[]
+        output = []
 
         for cell in nb.cells:
 
-            if cell.cell_type=="markdown":
+            if cell.cell_type == "markdown":
 
                 output.append(
-
-                    "".join(
-                        cell.source
-                    )
-
+                    "".join(cell.source)
                 )
 
-            elif cell.cell_type=="code":
+            elif cell.cell_type == "code":
 
                 output.append(
-
-                    "CODE:\n"+
-
-                    "".join(
-                        cell.source
-                    )
-
+                    "CODE:\n" +
+                    "".join(cell.source)
                 )
 
         return "\n".join(output)
@@ -146,15 +122,19 @@ def summarize_csv(text):
 
     try:
 
-        df=pd.read_csv(
+        df = pd.read_csv(
             io.StringIO(text)
         )
 
         return f"""
-Rows:{df.shape[0]}
-Columns:{list(df.columns)}
+Rows: {df.shape[0]}
 
-{df.head(3)}
+Columns:
+{list(df.columns)}
+
+Sample:
+
+{df.head(3).to_string()}
 """
 
     except:
@@ -162,55 +142,51 @@ Columns:{list(df.columns)}
         return ""
 
 
-# =====================
+# --------------------------------
 # RUBRIC
-# =====================
+# --------------------------------
 
 def rubric_to_text(df):
 
-    output=[]
+    text = []
 
-    for _,r in df.iterrows():
+    for _, row in df.iterrows():
 
-        output.append(
+        text.append(
 
 f"""
 Criterion:
-{r["Criterion"]}
+{row["Criterion"]}
 
 Max Score:
-{r["Max Score"]}
+{row["Max Score"]}
 
 Description:
-{r["Description"]}
+{row["Description"]}
 """
-
         )
 
-    return "\n".join(output)
+    return "\n".join(text)
 
 
-# =====================
-# ZIP
-# =====================
+# --------------------------------
+# PARSER
+# --------------------------------
 
 def parse_submission(zip_bytes):
 
-    parsed={
+    result = {
 
-        "docs":[],
-
-        "code":[],
-
-        "notebooks":[],
-
-        "database":[],
-
-        "datasets":[]
+        "documentation": [],
+        "code": [],
+        "notebooks": [],
+        "datasets": [],
+        "database": [],
+        "images": []
 
     }
 
-    z=zipfile.ZipFile(
+    z = zipfile.ZipFile(
         io.BytesIO(zip_bytes)
     )
 
@@ -218,19 +194,21 @@ def parse_submission(zip_bytes):
 
         try:
 
-            raw=z.read(file)
+            raw = z.read(file)
 
-            suffix=Path(
+            suffix = Path(
                 file
             ).suffix.lower()
 
-            text=raw.decode(
+            decoded = raw.decode(
                 errors="ignore"
             )
 
-            if suffix==".pdf":
+            if suffix == ".pdf":
 
-                parsed["docs"].append(
+                result[
+                    "documentation"
+                ].append(
 
                     read_pdf(
                         io.BytesIO(raw)
@@ -238,9 +216,11 @@ def parse_submission(zip_bytes):
 
                 )
 
-            elif suffix==".docx":
+            elif suffix == ".docx":
 
-                parsed["docs"].append(
+                result[
+                    "documentation"
+                ].append(
 
                     read_docx(
                         io.BytesIO(raw)
@@ -255,281 +235,207 @@ def parse_submission(zip_bytes):
 
             ]:
 
-                parsed["docs"].append(
+                result[
+                    "documentation"
+                ].append(
 
-                    read_html(text)
-
-                )
-
-            elif suffix==".py":
-
-                parsed["code"].append(
-                    text
-                )
-
-            elif suffix==".ipynb":
-
-                parsed["notebooks"].append(
-
-                    read_notebook(text)
+                    read_html(decoded)
 
                 )
 
-            elif suffix==".sql":
+            elif suffix == ".py":
 
-                parsed["database"].append(
-                    text
-                )
+                result[
+                    "code"
+                ].append(
 
-            elif suffix==".csv":
-
-                parsed["datasets"].append(
-
-                    summarize_csv(text)
+                    decoded
 
                 )
 
-            elif suffix==".md":
+            elif suffix == ".ipynb":
 
-                parsed["docs"].append(
-                    text
+                result[
+                    "notebooks"
+                ].append(
+
+                    read_notebook(
+                        decoded
+                    )
+
                 )
+
+            elif suffix == ".csv":
+
+                result[
+                    "datasets"
+                ].append(
+
+                    summarize_csv(
+                        decoded
+                    )
+
+                )
+
+            elif suffix == ".sql":
+
+                result[
+                    "database"
+                ].append(
+
+                    decoded
+
+                )
+
+            elif suffix == ".md":
+
+                result[
+                    "documentation"
+                ].append(
+
+                    decoded
+
+                )
+
+            elif suffix in [
+
+                ".png",
+                ".jpg",
+                ".jpeg"
+
+            ]:
+
+                result[
+                    "images"
+                ].append(file)
 
         except:
 
             pass
 
-    return parsed
+    return result
 
 
-# =====================
+# --------------------------------
 # CONTEXT
-# =====================
+# --------------------------------
 
-def build_context(parsed):
+def build_context(data):
 
     return f"""
 
 DOCUMENTATION
 
-{' '.join(parsed['docs'])[:12000]}
+{' '.join(data['documentation'])[:12000]}
 
 NOTEBOOKS
 
-{' '.join(parsed['notebooks'])[:10000]}
+{' '.join(data['notebooks'])[:10000]}
 
 CODE
 
-{' '.join(parsed['code'])[:15000]}
+{' '.join(data['code'])[:15000]}
 
 DATABASE
 
-{' '.join(parsed['database'])[:5000]}
+{' '.join(data['database'])[:5000]}
 
 DATASETS
 
-{parsed['datasets']}
+{data['datasets']}
+
+IMAGES
+
+{data['images']}
 
 """
 
 
-# =====================
-# SCORE
-# =====================
-
-def strict_rubric_score(
-    raw,
-    max_marks
-):
-
-    ratio=0
-
-    if max_marks:
-
-        ratio=raw/max_marks
-
-    if ratio>=0.95:
-
-        reduction=max(
-
-            1,
-
-            round(
-                max_marks*.10
-            )
-
-        )
-
-    elif ratio>=0.90:
-
-        reduction=max(
-
-            1,
-
-            round(
-                max_marks*.15
-            )
-
-        )
-
-    elif ratio>=0.80:
-
-        reduction=max(
-
-            1,
-
-            round(
-                max_marks*.20
-            )
-
-        )
-
-    elif ratio>=0.70:
-
-        reduction=max(
-
-            1,
-
-            round(
-                max_marks*.25
-            )
-
-        )
-
-    else:
-
-        reduction=0
-
-    score=int(
-
-        round(
-
-            raw-reduction
-
-        )
-
-    )
-
-    return max(
-
-        0,
-
-        min(
-
-            score,
-
-            max_marks
-
-        )
-
-    )
-
-
-def calculate_final_score(
-    total,
-    penalties
-):
-
-    deduction=0
-
-    penalties=penalties or []
-
-    for p in penalties:
-
-        try:
-
-            if isinstance(
-                p,
-                dict
-            ):
-
-                deduction+=int(
-
-                    p.get(
-                        "deduction",
-                        0
-                    )
-
-                )
-
-        except:
-
-            pass
-
-    return int(
-
-        round(
-
-            min(
-
-                max(
-                    total-deduction,
-                    0
-                ),
-
-                75
-
-            )
-
-        )
-
-    )
-
-
-# =====================
+# --------------------------------
 # OPENAI
-# =====================
+# --------------------------------
 
-def evaluate(prompt):
+def evaluate_submission(prompt):
 
-    response=client.chat.completions.create(
+    response = client.chat.completions.create(
 
         model="gpt-4.1",
 
         temperature=0,
 
-        response_format={
-
-            "type":"json_object"
-
-        },
-
         messages=[
 
-        {
+            {
 
-        "role":"system",
+                "role":"system",
 
-        "content":"""
+                "content":"""
 
-STRICT evaluator.
+You are an EXTREMELY STRICT evaluator.
 
-Maximum excellent score=75.
+Rules:
 
-Average:
-45-60
+1. Never give full marks by default.
 
-Good:
-60-69
+2. Missing implementation → deduct.
 
-Exceptional:
-70-75
+3. Placeholder code → deduct.
 
-Reduce scores aggressively.
+4. Hardcoded logic → deduct.
 
-Return VALID JSON.
+5. Missing validations → deduct.
+
+6. Missing edge cases → deduct.
+
+7. Weak architecture → deduct.
+
+8. Weak modularity → deduct.
+
+9. Weak documentation → deduct.
+
+10. Weak frontend/backend integration → deduct.
+
+11. Missing API handling → deduct.
+
+12. Missing testing → deduct.
+
+13. Average projects:
+50-75
+
+14. Strong projects:
+75-88
+
+15. Exceptional:
+90+
+
+16. Full marks only if evidence exists.
+
+17. Different submissions should not receive identical scores unless truly identical.
+
+Return ONLY JSON.
+
+Format:
+
+{
+"scores":{
+},
+"strengths":[
+],
+"improvements":[
+]
+}
 
 """
 
-        },
+            },
 
-        {
+            {
 
-        "role":"user",
+                "role":"user",
 
-        "content":prompt
+                "content":prompt
 
-        }
+            }
 
         ]
 
@@ -540,11 +446,11 @@ Return VALID JSON.
     ].message.content
 
 
-# =====================
+# --------------------------------
 # SAFE JSON
-# =====================
+# --------------------------------
 
-def safe_json(raw):
+def parse_json(raw):
 
     try:
 
@@ -552,179 +458,201 @@ def safe_json(raw):
 
     except:
 
-        return {
+        match = re.search(
 
-            "scores":{},
-            "strengths":[],
-            "improvements":[],
-            "penalties":[],
-            "overall_feedback":""
+            r"\{.*\}",
 
-        }
+            raw,
+
+            re.DOTALL
+
+        )
+
+        if match:
+
+            try:
+
+                return json.loads(
+                    match.group()
+                )
+
+            except:
+
+                pass
+
+    return {
+
+        "scores":{},
+        "strengths":[],
+        "improvements":[]
+
+    }
 
 
-# =====================
+# --------------------------------
 # UI
-# =====================
+# --------------------------------
 
-problem=st.file_uploader(
-"Problem",
-["pdf","docx"]
+problem = st.file_uploader(
+    "Problem Statement",
+    ["pdf","docx"]
 )
 
-rubric=st.file_uploader(
-"Rubric",
-["xlsx"]
+rubric = st.file_uploader(
+    "Rubric",
+    ["xlsx"]
 )
 
-submissions=st.file_uploader(
+submissions = st.file_uploader(
 
-"Participant ZIP",
+    "Participant ZIP Files",
 
-type=["zip"],
+    type=["zip"],
 
-accept_multiple_files=True
-
-)
-
-policy=st.text_area(
-
-"Evaluation Policy"
+    accept_multiple_files=True
 
 )
 
-# =====================
+custom_prompt = st.text_area(
+
+"Strict Evaluation Instructions",
+
+placeholder="""
+Example:
+
+Be extremely strict.
+
+Deduct for:
+
+- hardcoded values
+- missing validations
+- duplicated code
+- weak architecture
+- missing edge cases
+- poor modularity
+
+Only exceptional submissions get 90+
+"""
+
+)
+
+
+# --------------------------------
 # RUN
-# =====================
+# --------------------------------
 
 if st.button("Evaluate"):
 
-    rubric_df=pd.read_excel(
+    rubric_df = pd.read_excel(
         rubric
     )
 
-    rubric_text=rubric_to_text(
+    rubric_text = rubric_to_text(
         rubric_df
     )
 
-    if problem.name.endswith(
-        ".pdf"
-    ):
+    if problem.name.endswith(".pdf"):
 
-        problem_text=read_pdf(
+        problem_text = read_pdf(
             problem
         )
 
     else:
 
-        problem_text=read_docx(
+        problem_text = read_docx(
             problem
         )
 
-    def process(file):
+    def process(zip_obj):
 
-        parsed=parse_submission(
-            file.read()
+        parsed = parse_submission(
+            zip_obj.read()
         )
 
-        context=build_context(
+        context = build_context(
             parsed
         )
 
-        prompt=f"""
+        prompt = f"""
 
-POLICY
-
-{policy}
-
-PROBLEM
+PROBLEM:
 
 {problem_text}
 
-RUBRIC
+RUBRIC:
 
 {rubric_text}
 
-SUBMISSION
+STRICT RULES:
+
+{custom_prompt}
+
+SUBMISSION:
 
 {context}
 
-Return EXACT rubric names.
+Evaluate STRICTLY.
 
-JSON ONLY.
+Evidence required.
+
+No evidence = no score.
+
+Return JSON only.
 
 """
 
-        result=safe_json(
-
-            evaluate(prompt)
-
+        raw = evaluate_submission(
+            prompt
         )
 
-        row={
+        parsed_json = parse_json(
+            raw
+        )
+
+        row = {
 
             "Participant":
-            file.name
+            zip_obj.name
 
         }
 
-        total=0
+        total = 0
 
-        for _,r in rubric_df.iterrows():
+        for _, r in rubric_df.iterrows():
 
-            criterion=r[
+            criterion = r[
                 "Criterion"
             ]
 
-            max_marks=int(
-                r["Max Score"]
-            )
+            score = float(
 
-            raw=float(
+                parsed_json[
+                    "scores"
+                ].get(
 
-                result.get(
-                    "scores",
-                    {}
-                ).get(
                     criterion,
+
                     0
+
                 )
 
             )
 
-            score=strict_rubric_score(
-
-                raw,
-
-                max_marks
-
-            )
-
             row[
-                f"{criterion} ({max_marks})"
-            ]=score
+                criterion
+            ] = score
 
-            total+=score
-
-        penalties=result.get(
-            "penalties",
-            []
-        )
-
-        final=calculate_final_score(
-            total,
-            penalties
-        )
+            total += score
 
         row[
-            "Final Score"
-        ]=final
+            "Total"
+        ] = total
 
         row[
             "Strengths"
-        ]="; ".join(
+        ] = "; ".join(
 
-            result.get(
+            parsed_json.get(
                 "strengths",
                 []
             )
@@ -732,51 +660,47 @@ JSON ONLY.
         )
 
         row[
-            "Areas Of Improvement"
-        ]="; ".join(
+            "Improvements"
+        ] = "; ".join(
 
-            result.get(
+            parsed_json.get(
                 "improvements",
                 []
             )
 
         )
 
-        row[
-            "Overall Feedback"
-        ]=result.get(
-
-            "overall_feedback",
-
-            ""
-
-        )
-
         return row
 
-    with ThreadPoolExecutor(
-        max_workers=4
-    ) as ex:
+    with st.spinner(
+        "Evaluating..."
+    ):
 
-        results=list(
+        with ThreadPoolExecutor(
+            max_workers=4
+        ) as executor:
 
-            ex.map(
-                process,
-                submissions
+            results = list(
+
+                executor.map(
+                    process,
+                    submissions
+                )
+
             )
 
-        )
-
-    df=pd.DataFrame(
+    output = pd.DataFrame(
         results
     )
 
+    st.success("Done")
+
     st.dataframe(
-        df,
+        output,
         use_container_width=True
     )
 
-    excel=io.BytesIO()
+    excel = io.BytesIO()
 
     with pd.ExcelWriter(
 
@@ -786,11 +710,13 @@ JSON ONLY.
 
     ) as writer:
 
-        df.to_excel(
+        output.to_excel(
 
             writer,
 
-            index=False
+            index=False,
+
+            sheet_name="Scores"
 
         )
 
@@ -800,6 +726,9 @@ JSON ONLY.
 
         excel.getvalue(),
 
-        "evaluation_report.xlsx"
+        file_name=
+        "evaluation_report.xlsx",
+
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     )
