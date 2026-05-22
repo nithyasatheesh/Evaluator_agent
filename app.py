@@ -13,9 +13,9 @@ from docx import Document
 from PyPDF2 import PdfReader
 import nbformat
 
-# --------------------------------
+# =====================================
 # CONFIG
-# --------------------------------
+# =====================================
 
 st.set_page_config(
     page_title="AI Case Study Evaluator",
@@ -28,9 +28,9 @@ client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"]
 )
 
-# --------------------------------
+# =====================================
 # READERS
-# --------------------------------
+# =====================================
 
 def read_pdf(file):
 
@@ -38,16 +38,17 @@ def read_pdf(file):
 
         reader = PdfReader(file)
 
-        text=[]
+        pages=[]
 
-        for p in reader.pages:
+        for page in reader.pages:
 
-            t = p.extract_text()
+            text=page.extract_text()
 
-            if t:
-                text.append(t)
+            if text:
 
-        return "\n".join(text)
+                pages.append(text)
+
+        return "\n".join(pages)
 
     except:
 
@@ -58,11 +59,14 @@ def read_docx(file):
 
     try:
 
-        doc = Document(file)
+        doc=Document(file)
 
         return "\n".join(
+
             p.text
+
             for p in doc.paragraphs
+
         )
 
     except:
@@ -72,19 +76,26 @@ def read_docx(file):
 
 def read_html(text):
 
-    soup = BeautifulSoup(
+    soup=BeautifulSoup(
+
         text,
+
         "html.parser"
+
     )
 
     for tag in soup(
+
         ["script","style"]
+
     ):
 
         tag.decompose()
 
     return soup.get_text(
+
         separator="\n"
+
     )
 
 
@@ -92,9 +103,12 @@ def read_notebook(text):
 
     try:
 
-        nb = nbformat.reads(
+        nb=nbformat.reads(
+
             text,
+
             as_version=4
+
         )
 
         output=[]
@@ -104,7 +118,11 @@ def read_notebook(text):
             if cell.cell_type=="markdown":
 
                 output.append(
-                    "".join(cell.source)
+
+                    "".join(
+                        cell.source
+                    )
+
                 )
 
             elif cell.cell_type=="code":
@@ -112,7 +130,10 @@ def read_notebook(text):
                 output.append(
 
                     "CODE:\n"+
-                    "".join(cell.source)
+
+                    "".join(
+                        cell.source
+                    )
 
                 )
 
@@ -127,19 +148,26 @@ def summarize_csv(text):
 
     try:
 
-        df = pd.read_csv(
+        df=pd.read_csv(
+
             io.StringIO(text)
+
         )
 
         return f"""
-Rows:{df.shape[0]}
+
+Rows:
+
+{df.shape[0]}
 
 Columns:
+
 {list(df.columns)}
 
 Sample:
 
 {df.head(3).to_string()}
+
 """
 
     except:
@@ -147,9 +175,9 @@ Sample:
         return ""
 
 
-# --------------------------------
+# =====================================
 # RUBRIC
-# --------------------------------
+# =====================================
 
 def rubric_to_text(df):
 
@@ -160,14 +188,19 @@ def rubric_to_text(df):
         output.append(
 
 f"""
+
 Criterion:
+
 {row["Criterion"]}
 
 Max Score:
+
 {row["Max Score"]}
 
 Description:
+
 {row["Description"]}
+
 """
 
         )
@@ -175,25 +208,32 @@ Description:
     return "\n".join(output)
 
 
-# --------------------------------
-# ZIP PARSER
-# --------------------------------
+# =====================================
+# PARSER
+# =====================================
 
 def parse_submission(zip_bytes):
 
     result={
 
-        "documentation":[],
+        "docs":[],
+
         "code":[],
+
         "notebooks":[],
+
         "database":[],
+
         "datasets":[],
+
         "images":[]
 
     }
 
     z=zipfile.ZipFile(
+
         io.BytesIO(zip_bytes)
+
     )
 
     for file in z.namelist():
@@ -203,18 +243,20 @@ def parse_submission(zip_bytes):
             raw=z.read(file)
 
             suffix=Path(
+
                 file
+
             ).suffix.lower()
 
-            decoded=raw.decode(
+            text=raw.decode(
+
                 errors="ignore"
+
             )
 
             if suffix==".pdf":
 
-                result[
-                    "documentation"
-                ].append(
+                result["docs"].append(
 
                     read_pdf(
                         io.BytesIO(raw)
@@ -224,9 +266,7 @@ def parse_submission(zip_bytes):
 
             elif suffix==".docx":
 
-                result[
-                    "documentation"
-                ].append(
+                result["docs"].append(
 
                     read_docx(
                         io.BytesIO(raw)
@@ -241,60 +281,48 @@ def parse_submission(zip_bytes):
 
             ]:
 
-                result[
-                    "documentation"
-                ].append(
+                result["docs"].append(
 
-                    read_html(decoded)
+                    read_html(text)
 
                 )
 
             elif suffix==".py":
 
-                result[
-                    "code"
-                ].append(
-                    decoded
+                result["code"].append(
+                    text
                 )
 
             elif suffix==".ipynb":
 
-                result[
-                    "notebooks"
-                ].append(
+                result["notebooks"].append(
 
                     read_notebook(
-                        decoded
+                        text
                     )
 
                 )
 
             elif suffix==".csv":
 
-                result[
-                    "datasets"
-                ].append(
+                result["datasets"].append(
 
                     summarize_csv(
-                        decoded
+                        text
                     )
 
                 )
 
             elif suffix==".sql":
 
-                result[
-                    "database"
-                ].append(
-                    decoded
+                result["database"].append(
+                    text
                 )
 
             elif suffix==".md":
 
-                result[
-                    "documentation"
-                ].append(
-                    decoded
+                result["docs"].append(
+                    text
                 )
 
             elif suffix in [
@@ -305,9 +333,9 @@ def parse_submission(zip_bytes):
 
             ]:
 
-                result[
-                    "images"
-                ].append(file)
+                result["images"].append(
+                    file
+                )
 
         except:
 
@@ -316,48 +344,117 @@ def parse_submission(zip_bytes):
     return result
 
 
-# --------------------------------
+# =====================================
 # CONTEXT
-# --------------------------------
+# =====================================
 
-def build_context(data):
+def build_context(parsed):
 
     return f"""
 
 DOCUMENTATION
 
-{' '.join(data['documentation'])[:12000]}
+{' '.join(parsed['docs'])[:12000]}
 
 NOTEBOOKS
 
-{' '.join(data['notebooks'])[:10000]}
+{' '.join(parsed['notebooks'])[:8000]}
 
 CODE
 
-{' '.join(data['code'])[:15000]}
+{' '.join(parsed['code'])[:15000]}
 
 DATABASE
 
-{' '.join(data['database'])[:5000]}
+{' '.join(parsed['database'])[:5000]}
 
 DATASETS
 
-{data['datasets']}
+{parsed['datasets']}
 
 IMAGES
 
-{data['images']}
+{parsed['images']}
 
 """
 
 
-# --------------------------------
+# =====================================
+# SCORE NORMALIZATION
+# =====================================
+
+def normalize_score(
+
+    total,
+
+    context
+
+):
+
+    size=len(context)
+
+    multiplier=1
+
+    if size<4000:
+
+        multiplier=.60
+
+    elif size<8000:
+
+        multiplier=.72
+
+    elif size<12000:
+
+        multiplier=.82
+
+    else:
+
+        multiplier=.92
+
+    adjusted=total*multiplier
+
+    if adjusted>75:
+
+        adjusted=75
+
+    elif adjusted>=65:
+
+        adjusted=min(
+            adjusted,
+            69
+        )
+
+    elif adjusted>=45:
+
+        adjusted=min(
+            adjusted,
+            60
+        )
+
+    adjusted=max(
+
+        adjusted,
+
+        35
+
+    )
+
+    return round(
+
+        adjusted,
+
+        2
+
+    )
+
+
+# =====================================
 # OPENAI
-# --------------------------------
+# =====================================
 
 def evaluate(prompt):
 
-    response = client.chat.completions.create(
+    response=client.chat.completions.create(
 
         model="gpt-4.1",
 
@@ -365,17 +462,27 @@ def evaluate(prompt):
 
         messages=[
 
-            {
+        {
 
-                "role":"system",
+        "role":"system",
 
-                "content":"""
+        "content":"""
 
-You are a strict evaluator.
+You are STRICT.
 
-Evaluate ONLY using evidence.
+Maximum excellent score:
 
-Do not assume functionality.
+75
+
+Prefer scores:
+
+45-60
+
+Exceptional:
+
+70-75
+
+Evaluate ONLY evidence.
 
 Folder count != quality.
 
@@ -383,21 +490,19 @@ Project size != quality.
 
 Boilerplate != quality.
 
-Missing evidence = deduct.
-
-Return ONLY JSON.
+Return JSON only.
 
 """
 
-            },
+        },
 
-            {
+        {
 
-                "role":"user",
+        "role":"user",
 
-                "content":prompt
+        "content":prompt
 
-            }
+        }
 
         ]
 
@@ -408,11 +513,11 @@ Return ONLY JSON.
     ].message.content
 
 
-# --------------------------------
+# =====================================
 # SAFE JSON
-# --------------------------------
+# =====================================
 
-def parse_json(raw):
+def safe_json(raw):
 
     try:
 
@@ -435,7 +540,9 @@ def parse_json(raw):
             try:
 
                 return json.loads(
+
                     match.group()
+
                 )
 
             except:
@@ -452,23 +559,29 @@ def parse_json(raw):
     }
 
 
-# --------------------------------
+# =====================================
 # UI
-# --------------------------------
+# =====================================
 
 problem=st.file_uploader(
+
 "Problem",
+
 ["pdf","docx"]
+
 )
 
 rubric=st.file_uploader(
+
 "Rubric",
+
 ["xlsx"]
+
 )
 
 submissions=st.file_uploader(
 
-"Participant ZIP",
+"Participant ZIP Files",
 
 type=["zip"],
 
@@ -478,51 +591,61 @@ accept_multiple_files=True
 
 custom_prompt=st.text_area(
 
-"Strict Evaluation Prompt",
-
-height=250
+"Evaluation Policy"
 
 )
 
 
-# --------------------------------
+# =====================================
 # RUN
-# --------------------------------
+# =====================================
 
 if st.button("Evaluate"):
 
     rubric_df=pd.read_excel(
+
         rubric
+
     )
 
     rubric_text=rubric_to_text(
+
         rubric_df
+
     )
 
     if problem.name.endswith(
+
         ".pdf"
+
     ):
 
         problem_text=read_pdf(
+
             problem
+
         )
 
     else:
 
         problem_text=read_docx(
+
             problem
+
         )
 
-    def process(submission):
+    def process(file):
 
         parsed=parse_submission(
 
-            submission.read()
+            file.read()
 
         )
 
         context=build_context(
+
             parsed
+
         )
 
         prompt=f"""
@@ -531,15 +654,17 @@ EVALUATION POLICY
 
 {custom_prompt}
 
-IMPORTANT:
+Maximum excellent score:
 
-Above policy is HIGHEST PRIORITY.
+75
 
-Follow score caps exactly.
+Prefer:
 
-Follow scoring ranges exactly.
+45-60
 
-Follow evaluator instructions exactly.
+Only exceptional:
+
+70-75
 
 PROBLEM
 
@@ -552,10 +677,6 @@ RUBRIC
 SUBMISSION
 
 {context}
-
-Evaluate strictly.
-
-Use ONLY evidence.
 
 Return JSON:
 
@@ -570,14 +691,13 @@ Return JSON:
 
         raw=evaluate(prompt)
 
-        result=parse_json(
-            raw
-        )
+        result=safe_json(raw)
 
         row={
 
             "Participant":
-            submission.name
+
+            file.name
 
         }
 
@@ -585,15 +705,17 @@ Return JSON:
 
         for _,r in rubric_df.iterrows():
 
-            criterion=r[
-                "Criterion"
-            ]
+            criterion=r["Criterion"]
 
             score=float(
 
-                result[
-                    "scores"
-                ].get(
+                result.get(
+
+                    "scores",
+
+                    {}
+
+                ).get(
 
                     criterion,
 
@@ -603,77 +725,84 @@ Return JSON:
 
             )
 
-            row[
-                criterion
-            ]=score
+            row[criterion]=score
 
             total+=score
 
-        row[
-            "Total"
-        ]=round(
+        final_score=normalize_score(
+
             total,
-            2
+
+            context
+
         )
 
-        row[
-            "Strengths"
-        ]="; ".join(
+        row["Final Score"]=final_score
+
+        row["Strengths"]="; ".join(
 
             result.get(
+
                 "strengths",
+
                 []
+
             )
 
         )
 
-        row[
-            "Improvements"
-        ]="; ".join(
+        row["Areas Of Improvement"]="; ".join(
 
             result.get(
+
                 "improvements",
+
                 []
+
             )
 
         )
 
-        row[
-            "Overall Feedback"
-        ]=result.get(
+        row["Overall Feedback"]=result.get(
+
             "overall_feedback",
+
             ""
+
         )
 
         return row
 
-    with st.spinner(
-        "Evaluating..."
-    ):
+    with ThreadPoolExecutor(
 
-        with ThreadPoolExecutor(
-            max_workers=4
-        ) as ex:
+        max_workers=4
 
-            results=list(
+    ) as executor:
 
-                ex.map(
+        results=list(
 
-                    process,
+            executor.map(
 
-                    submissions
+                process,
 
-                )
+                submissions
 
             )
 
-    output=pd.DataFrame(
+        )
+
+    df=pd.DataFrame(
+
         results
+
     )
 
     st.dataframe(
-        output,
+
+        df,
+
         use_container_width=True
+
     )
 
     excel=io.BytesIO()
@@ -686,13 +815,11 @@ Return JSON:
 
     ) as writer:
 
-        output.to_excel(
+        df.to_excel(
 
             writer,
 
-            index=False,
-
-            sheet_name="Evaluation"
+            index=False
 
         )
 
@@ -702,8 +829,6 @@ Return JSON:
 
         excel.getvalue(),
 
-        "evaluation_report.xlsx",
-
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "evaluation_report.xlsx"
 
     )
