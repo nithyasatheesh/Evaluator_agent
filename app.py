@@ -32,20 +32,20 @@ client = OpenAI(
 
 
 # --------------------------------
-# FILE READERS
+# READERS
 # --------------------------------
 
 def read_pdf(file):
 
     try:
 
-        reader = PdfReader(file)
+        reader=PdfReader(file)
 
-        pages = []
+        pages=[]
 
-        for page in reader.pages:
+        for p in reader.pages:
 
-            txt = page.extract_text()
+            txt=p.extract_text()
 
             if txt:
 
@@ -62,7 +62,7 @@ def read_docx(file):
 
     try:
 
-        doc = Document(file)
+        doc=Document(file)
 
         return "\n".join(
 
@@ -81,13 +81,18 @@ def read_html(text):
 
     try:
 
-        soup = BeautifulSoup(
+        soup=BeautifulSoup(
+
             text,
+
             "html.parser"
+
         )
 
         for tag in soup(
+
             ["script","style"]
+
         ):
 
             tag.decompose()
@@ -105,26 +110,31 @@ def read_notebook(text):
 
     try:
 
-        nb = nbformat.reads(
+        nb=nbformat.reads(
+
             text,
+
             as_version=4
+
         )
 
-        out = []
+        output=[]
 
         for cell in nb.cells:
 
             if cell.cell_type=="markdown":
 
-                out.append(
+                output.append(
+
                     "".join(
                         cell.source
                     )
+
                 )
 
             elif cell.cell_type=="code":
 
-                out.append(
+                output.append(
 
                     "CODE:\n"+
 
@@ -134,7 +144,7 @@ def read_notebook(text):
 
                 )
 
-        return "\n".join(out)
+        return "\n".join(output)
 
     except:
 
@@ -145,8 +155,10 @@ def summarize_csv(text):
 
     try:
 
-        df = pd.read_csv(
+        df=pd.read_csv(
+
             io.StringIO(text)
+
         )
 
         return f"""
@@ -174,26 +186,26 @@ Sample:
 
 def rubric_to_text(df):
 
-    text=[]
+    output=[]
 
-    for _,r in df.iterrows():
+    for _,row in df.iterrows():
 
-        text.append(
+        output.append(
 
 f"""
 Criterion:
-{r["Criterion"]}
+{row["Criterion"]}
 
 Max Score:
-{r["Max Score"]}
+{row["Max Score"]}
 
 Description:
-{r["Description"]}
+{row["Description"]}
 """
 
         )
 
-    return "\n".join(text)
+    return "\n".join(output)
 
 
 # --------------------------------
@@ -219,7 +231,9 @@ def parse_submission(zip_bytes):
     }
 
     z=zipfile.ZipFile(
+
         io.BytesIO(zip_bytes)
+
     )
 
     for file in z.namelist():
@@ -233,7 +247,9 @@ def parse_submission(zip_bytes):
             ).suffix.lower()
 
             decoded=raw.decode(
+
                 errors="ignore"
+
             )
 
             if suffix==".pdf":
@@ -281,9 +297,7 @@ def parse_submission(zip_bytes):
 
                 result[
                     "code"
-                ].append(
-                    decoded
-                )
+                ].append(decoded)
 
             elif suffix==".ipynb":
 
@@ -313,29 +327,13 @@ def parse_submission(zip_bytes):
 
                 result[
                     "database"
-                ].append(
-                    decoded
-                )
+                ].append(decoded)
 
             elif suffix==".md":
 
                 result[
                     "documentation"
-                ].append(
-                    decoded
-                )
-
-            elif suffix in [
-
-                ".png",
-                ".jpg",
-                ".jpeg"
-
-            ]:
-
-                result[
-                    "images"
-                ].append(file)
+                ].append(decoded)
 
         except:
 
@@ -381,14 +379,16 @@ DATASETS
 
 def evaluate_submission(prompt):
 
-    response = client.chat.completions.create(
+    response=client.chat.completions.create(
 
         model="gpt-4.1",
 
         temperature=0,
 
         response_format={
+
             "type":"json_object"
+
         },
 
         messages=[
@@ -401,59 +401,32 @@ def evaluate_submission(prompt):
 
 EXTREMELY STRICT evaluator.
 
-USER PROMPT OVERRIDES DEFAULTS.
-
-Maximum total score = 75.
+Maximum displayed score=75.
 
 Exceptional:
-
 70-75
 
 Strong:
-
 65-69
 
 Average:
-
 45-64
 
 Weak:
-
-Below 45.
+Below 45
 
 Deduct aggressively:
 
 - hardcoded logic
 - duplicate code
-- weak modularity
 - weak validation
-- missing edge cases
+- weak modularity
 - weak architecture
-- missing documentation
-- weak exception handling
 - incomplete implementation
 
-Only evidence earns score.
+Only evidence earns marks.
 
-Do not reward:
-
-- folder count
-- file count
-- project size
-
-Rubric criterion marks themselves should naturally align to maximum 75.
-
-Never exceed 75.
-
-Return ONLY JSON.
-
-Format:
-
-{
-"scores":{},
-"strengths":[],
-"improvements":[]
-}
+Return JSON ONLY.
 
 """
 
@@ -471,9 +444,7 @@ Format:
 
     )
 
-    return response.choices[
-        0
-    ].message.content
+    return response.choices[0].message.content
 
 
 # --------------------------------
@@ -488,84 +459,48 @@ def parse_json(raw):
 
     except:
 
-        match = re.search(
+        return {
 
-            r"\{.*\}",
+            "scores":{},
+            "strengths":[],
+            "improvements":[]
 
-            raw,
-
-            re.DOTALL
-
-        )
-
-        if match:
-
-            try:
-
-                return json.loads(
-                    match.group()
-                )
-
-            except:
-
-                pass
-
-    return {
-
-        "scores":{},
-        "strengths":[],
-        "improvements":[]
-
-    }
+        }
 
 
 # --------------------------------
 # UI
 # --------------------------------
 
-problem = st.file_uploader(
-    "Problem Statement",
-    ["pdf","docx"]
-)
+problem=st.file_uploader(
 
-rubric = st.file_uploader(
-    "Rubric",
-    ["xlsx"]
-)
+"Problem Statement",
 
-submissions = st.file_uploader(
-
-    "Participant ZIP Files",
-
-    type=["zip"],
-
-    accept_multiple_files=True
+["pdf","docx"]
 
 )
 
-custom_prompt = st.text_area(
+rubric=st.file_uploader(
 
-"Strict Evaluation Instructions",
+"Rubric",
 
-placeholder="""
-Maximum score=75
+["xlsx"]
 
-Exceptional:
-70-75
+)
 
-Strong:
-65-69
+submissions=st.file_uploader(
 
-Average:
-45-64
+"Participant ZIP Files",
 
-Reduce for:
+type=["zip"],
 
-- duplicate code
-- hardcoded logic
-- weak architecture
-- missing validation
-"""
+accept_multiple_files=True
+
+)
+
+custom_prompt=st.text_area(
+
+"Strict Evaluation Instructions"
 
 )
 
@@ -576,35 +511,49 @@ Reduce for:
 
 if st.button("Evaluate"):
 
-    rubric_df = pd.read_excel(
+    rubric_df=pd.read_excel(
         rubric
     )
 
-    rubric_text = rubric_to_text(
+    rubric_total=int(
+
+        rubric_df[
+            "Max Score"
+        ].sum()
+
+    )
+
+    scale_factor=75/rubric_total
+
+    rubric_text=rubric_to_text(
         rubric_df
     )
 
     if problem.name.endswith(
+
         ".pdf"
+
     ):
 
-        problem_text = read_pdf(
+        problem_text=read_pdf(
             problem
         )
 
     else:
 
-        problem_text = read_docx(
+        problem_text=read_docx(
             problem
         )
 
     def process(zip_obj):
 
-        parsed = parse_submission(
+        parsed=parse_submission(
+
             zip_obj.read()
+
         )
 
-        context = build_context(
+        context=build_context(
             parsed
         )
 
@@ -628,28 +577,26 @@ SUBMISSION
 
 Return rubric names EXACTLY.
 
-No evidence=no score.
-
-Return JSON only.
+No evidence=no marks.
 
 """
 
-        raw = evaluate_submission(
+        raw=evaluate_submission(
             prompt
         )
 
-        result = parse_json(
+        result=parse_json(
             raw
         )
 
-        row = {
+        row={
 
             "Participant":
             zip_obj.name
 
         }
 
-        total = 0
+        total=0
 
         for _,r in rubric_df.iterrows():
 
@@ -661,49 +608,51 @@ Return JSON only.
                 r["Max Score"]
             )
 
-            score=int(
+            raw_score=float(
 
-                round(
+                result[
+                    "scores"
+                ].get(
 
-                    float(
+                    criterion,
 
-                        result[
-                            "scores"
-                        ].get(
-
-                            criterion,
-
-                            0
-
-                        )
-
-                    )
+                    0
 
                 )
 
             )
 
-            score=max(
+            adjusted=int(
+
+                round(
+
+                    raw_score*
+
+                    scale_factor
+
+                )
+
+            )
+
+            adjusted=max(
 
                 0,
 
                 min(
-                    score,
+
+                    adjusted,
+
                     max_score
+
                 )
 
             )
 
             row[
                 f"{criterion} ({max_score})"
-            ]=score
+            ]=adjusted
 
-            total+=score
-
-        total=min(
-            total,
-            75
-        )
+            total+=adjusted
 
         row[
             "Total"
@@ -733,34 +682,34 @@ Return JSON only.
 
         return row
 
-    with st.spinner(
-        "Evaluating..."
-    ):
+    with ThreadPoolExecutor(
 
-        with ThreadPoolExecutor(
-            max_workers=4
-        ) as executor:
+        max_workers=4
 
-            results=list(
+    ) as executor:
 
-                executor.map(
-                    process,
-                    submissions
-                )
+        results=list(
+
+            executor.map(
+
+                process,
+
+                submissions
 
             )
+
+        )
 
     output=pd.DataFrame(
         results
     )
 
-    st.success(
-        "Evaluation Complete"
-    )
-
     st.dataframe(
+
         output,
+
         use_container_width=True
+
     )
 
     excel=io.BytesIO()
@@ -777,9 +726,7 @@ Return JSON only.
 
             writer,
 
-            index=False,
-
-            sheet_name="Scores"
+            index=False
 
         )
 
