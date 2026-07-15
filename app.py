@@ -302,7 +302,30 @@ def parse_submission(zip_bytes: bytes) -> Dict[str, List[str]]:
         result["parse_warnings"].append("The ZIP file is corrupted or not a valid ZIP archive.")
     return result
 
+#----------------------------------
+def parse_uploaded_file(uploaded_file):
 
+    suffix = Path(uploaded_file.name).suffix.lower()
+
+    # ZIP file
+    if suffix == ".zip":
+        return parse_submission(uploaded_file.getvalue())
+
+    # Single file
+    result = empty_submission_result()
+
+    try:
+        add_parsed_file(
+            result,
+            uploaded_file.name,
+            uploaded_file.getvalue()
+        )
+    except Exception as e:
+        logger.exception(e)
+        result["parse_warnings"].append(str(e))
+
+    return result
+    #--------------------------
 # --------------------------------
 # CONTEXT
 # --------------------------------
@@ -491,7 +514,23 @@ def feedback_to_text(feedback: Any) -> str:
 
 problem = st.file_uploader("Problem Statement", ["pdf", "docx"])
 rubric = st.file_uploader("Rubric", ["xlsx"])
-submissions = st.file_uploader("Participant ZIP Files", type=["zip"], accept_multiple_files=True)
+# submissions = st.file_uploader("Participant ZIP Files", type=["zip"], accept_multiple_files=True)
+submissions = st.file_uploader(
+    "Student Submission(s)",
+    type=[
+        "zip",
+        "ipynb",
+        "html",
+        "htm",
+        "py",
+        "pdf",
+        "docx",
+        "md",
+        "txt"
+    ],
+    accept_multiple_files=True,
+    help="Upload ZIP, HTML, Jupyter Notebook, Python file, PDF, DOCX, Markdown or TXT."
+)
 custom_prompt = st.text_area(
     "Strict Evaluation Instructions",
     placeholder="""
@@ -527,9 +566,9 @@ def load_problem_text(uploaded_problem: Any) -> str:
     return ""
 
 
-def process_submission(zip_name: str, zip_bytes: bytes, problem_text: str, rubric_df: pd.DataFrame, rubric_text: str) -> Dict[str, Any]:
-    parsed_submission = parse_submission(zip_bytes)
-    row: Dict[str, Any] = {"Participant": zip_name}
+def process_submission(uploaded_file, problem_text: str, rubric_df: pd.DataFrame, rubric_text: str) -> Dict[str, Any]:
+    parsed_submission = parse_uploaded_file(uploaded_file)
+    row: Dict[str, Any] = {"Participant": uploaded_file.name}
 
     if not submission_has_evidence(parsed_submission):
         parsed_json = default_evaluation("No readable submission evidence was found. Unsupported, empty, or corrupted files may have been uploaded.")
@@ -596,7 +635,7 @@ if st.button("Evaluate"):
         st.warning("The problem statement could not be parsed as text. Evaluation will continue using the rubric and submissions.")
 
     rubric_text = rubric_to_text(normalized_rubric_df)
-    submission_payloads = [(uploaded.name, uploaded.getvalue()) for uploaded in submissions]
+    submission_payloads = submissions
     results: List[Dict[str, Any]] = []
 
     progress_bar = st.progress(0)
@@ -604,10 +643,16 @@ if st.button("Evaluate"):
     status.info("Preparing evaluations...")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(process_submission, name, payload, problem_text, normalized_rubric_df, rubric_text): name
-            for name, payload in submission_payloads
-        }
+       futures = {
+    executor.submit(
+        process_submission,
+        uploaded,
+        problem_text,
+        normalized_rubric_df,
+        rubric_text
+    ): uploaded.name
+    for uploaded in submission_payloads
+}
         for completed, future in enumerate(as_completed(futures), start=1):
             name = futures[future]
             try:
