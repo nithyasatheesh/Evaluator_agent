@@ -285,7 +285,7 @@ def add_parsed_file(result: Dict[str, List[str]], filename: str, raw: bytes) -> 
         result["parse_warnings"].append(f"Could not extract readable text from {filename}.")
 
 
-def parse_submission(uploaded_file.getvalue(): bytes) -> Dict[str, List[str]]:
+def parse_submission(zip_bytes: bytes) -> Dict[str, List[str]]:
     result = empty_submission_result()
     try:
         with zipfile.ZipFile(io.BytesIO(uploaded_file.getvalue())) as archive:
