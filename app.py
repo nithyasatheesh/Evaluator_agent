@@ -643,8 +643,8 @@ if st.button("Evaluate"):
     status.info("Preparing evaluations...")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-       futures = {
-    executor.submit(
+        futures = {
+            executor.submit(
         process_submission,
         uploaded,
         problem_text,
