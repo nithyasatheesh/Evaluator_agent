@@ -303,6 +303,33 @@ def parse_submission(zip_bytes: bytes) -> Dict[str, List[str]]:
     return result
 
 #----------------------------------
+def parse_uploaded_submission(uploaded_file) -> Dict[str, List[str]]:
+
+    suffix = Path(uploaded_file.name).suffix.lower()
+
+    # ZIP submission
+    if suffix == ".zip":
+        return parse_submission(uploaded_file.getvalue())
+
+    # Single file submission (.ipynb, .html, .py, .pdf, ...)
+    result = empty_submission_result()
+
+    try:
+        add_parsed_file(
+            result,
+            uploaded_file.name,
+            uploaded_file.getvalue()
+        )
+
+    except Exception as e:
+        logger.exception(e)
+        result["parse_warnings"].append(str(e))
+
+    return result
+
+
+
+#---------------------------------
 def parse_uploaded_file(uploaded_file):
 
     suffix = Path(uploaded_file.name).suffix.lower()
@@ -517,19 +544,8 @@ rubric = st.file_uploader("Rubric", ["xlsx"])
 # submissions = st.file_uploader("Participant ZIP Files", type=["zip"], accept_multiple_files=True)
 submissions = st.file_uploader(
     "Student Submission(s)",
-    type=[
-        "zip",
-        "ipynb",
-        "html",
-        "htm",
-        "py",
-        "pdf",
-        "docx",
-        "md",
-        "txt"
-    ],
-    accept_multiple_files=True,
-    help="Upload ZIP, HTML, Jupyter Notebook, Python file, PDF, DOCX, Markdown or TXT."
+    type=["zip", "ipynb", "html"],
+    accept_multiple_files=True
 )
 custom_prompt = st.text_area(
     "Strict Evaluation Instructions",
