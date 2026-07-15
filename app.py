@@ -285,10 +285,10 @@ def add_parsed_file(result: Dict[str, List[str]], filename: str, raw: bytes) -> 
         result["parse_warnings"].append(f"Could not extract readable text from {filename}.")
 
 
-def parse_submission(zip_bytes: bytes) -> Dict[str, List[str]]:
+def parse_submission(uploaded_file.getvalue(): bytes) -> Dict[str, List[str]]:
     result = empty_submission_result()
     try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        with zipfile.ZipFile(io.BytesIO(uploaded_file.getvalue())) as archive:
             for file_info in archive.infolist():
                 if file_info.is_dir():
                     continue
@@ -577,7 +577,7 @@ def process_submission(uploaded_file, problem_text: str, rubric_df: pd.DataFrame
         try:
             parsed_json = parse_json(evaluate_submission(prompt))
         except (OpenAIError, TimeoutError, RuntimeError, ValueError) as exc:
-            logger.exception("OpenAI evaluation failed for %s", zip_name)
+            logger.exception("OpenAI evaluation failed for %s",  uploaded_file.name)
             parsed_json = default_evaluation(f"OpenAI evaluation failed: {exc}")
 
     total = 0.0
